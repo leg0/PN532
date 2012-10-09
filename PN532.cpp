@@ -301,20 +301,26 @@ uint32_t PN532::readPassiveTargetID(uint8_t cardbaudrate) {
     readspidata(pn532_packetbuffer, 20);
     // check some basic stuff
 
+#ifdef PN532DEBUG
     Serial.print("Found "); Serial.print(pn532_packetbuffer[7], DEC); Serial.println(" tags");
+#endif
     if (pn532_packetbuffer[7] != 1)
         return 0;
     
     uint16_t sens_res = pn532_packetbuffer[9];
     sens_res <<= 8;
     sens_res |= pn532_packetbuffer[10];
+#ifdef PN532DEBUG
     Serial.print("Sens Response: 0x");  Serial.println(sens_res, HEX);
     Serial.print("Sel Response: 0x");  Serial.println(pn532_packetbuffer[11], HEX);
+#endif
     cid = 0;
     for (uint8_t i=0; i< pn532_packetbuffer[12]; i++) {
         cid <<= 8;
         cid |= pn532_packetbuffer[13+i];
+#ifdef PN532DEBUG
         Serial.print(" 0x"); Serial.print(pn532_packetbuffer[13+i], HEX);
+#endif
     }
 
 #ifdef PN532DEBUG
