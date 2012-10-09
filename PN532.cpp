@@ -8,19 +8,20 @@
 // by Javier Montaner (montanerj at yahoo dot com) 2012
 
 #include <Arduino.h>
-#include "PN532.h"
-#include "SPI.h"
+#include <PN532.h>
+#include <SPI.h>
 
 //#define PN532DEBUG 1
 
-byte pn532ack[] = {0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00};
-byte pn532response_firmwarevers[] = {0x00, 0xFF, 0x06, 0xFA, 0xD5, 0x03};
+static byte const pn532ack[] = {0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00};
+static byte const pn532response_firmwarevers[] = {0x00, 0xFF, 0x06, 0xFA, 0xD5, 0x03};
 
 #define PN532_PACKBUFFSIZ 64
-byte pn532_packetbuffer[PN532_PACKBUFFSIZ];
-#define PN532_CS 10
-PN532::PN532(uint8_t ss) {
-    _ss = ss;
+static byte pn532_packetbuffer[PN532_PACKBUFFSIZ];
+
+PN532::PN532(uint8_t ss)
+	: _ss(ss)
+{
     pinMode(_ss, OUTPUT);
 }
 
@@ -34,7 +35,7 @@ void PN532::backupSPIConf() {
 	_spiClock = SPCR & SPI_CLOCK_MASK;
 	SPI.setDataMode(SPI_MODE0);
 	SPI.setBitOrder(LSBFIRST);
-    SPI.setClockDivider(SPI_CLOCK_DIV4);
+	SPI.setClockDivider(SPI_CLOCK_DIV4);
 };
 
 // Restore SPI values in SPI SPCR register (mode, bit order and spi speed) to the values set up by other libraries/shields 
@@ -44,13 +45,13 @@ void PN532::restoreSPIConf() {
 	SPI.setDataMode(_mode);
 	if (_bitOrder) SPCR|=_BV(DORD);
 	else  SPCR &= ~(_BV(DORD));
-    SPI.setClockDivider(_spiClock);
+	SPI.setClockDivider(_spiClock);
 };
 
 
 void PN532::begin() {
 
-	SPI.begin();
+    SPI.begin();
     digitalWrite(_ss, LOW);
 
     delay(1000);
@@ -102,15 +103,15 @@ void PN532::RFConfiguration(uint8_t mxRtyPassiveActivation) {
     pn532_packetbuffer[1] = PN532_MAX_RETRIES; 
     pn532_packetbuffer[2] = 0xFF; // default MxRtyATR
     pn532_packetbuffer[3] = 0x01; // default MxRtyPSL
-	pn532_packetbuffer[4] = mxRtyPassiveActivation;
+    pn532_packetbuffer[4] = mxRtyPassiveActivation;
 
-	sendCommandCheckAck(pn532_packetbuffer, 5);
+    sendCommandCheckAck(pn532_packetbuffer, 5);
     // ignore response!
 }
 
 
 // default timeout of one second
-boolean PN532::sendCommandCheckAck(uint8_t *cmd, uint8_t cmdlen, uint16_t timeout) {
+bool PN532::sendCommandCheckAck(uint8_t const* cmd, uint8_t cmdlen, uint16_t timeout) {
     uint16_t timer = 0;
 
     // write the command
@@ -145,7 +146,7 @@ boolean PN532::sendCommandCheckAck(uint8_t *cmd, uint8_t cmdlen, uint16_t timeou
     return true; // ack'd command
 }
 
-boolean PN532::SAMConfig(void) {
+bool PN532::SAMConfig(void) {
     pn532_packetbuffer[0] = PN532_SAMCONFIGURATION;
     pn532_packetbuffer[1] = 0x01; // normal mode;
     pn532_packetbuffer[2] = 0x14; // timeout 50ms * 20 = 1 second
@@ -160,7 +161,7 @@ boolean PN532::SAMConfig(void) {
     return  (pn532_packetbuffer[5] == 0x15);
 }
 
-uint32_t PN532::authenticateBlock(uint8_t cardnumber /*1 or 2*/,uint32_t cid /*Card NUID*/, uint8_t blockaddress /*0 to 63*/,uint8_t authtype/*Either KEY_A or KEY_B */, uint8_t * keys) {
+uint32_t PN532::authenticateBlock(uint8_t cardnumber /*1 or 2*/, uint32_t cid /*Card NUID*/, uint8_t blockaddress /*0 to 63*/, uint8_t authtype/*Either KEY_A or KEY_B */, uint8_t const* keys) {
     pn532_packetbuffer[0] = PN532_INDATAEXCHANGE;
     pn532_packetbuffer[1] = cardnumber;  // either card 1 or 2 (tested for card 1)
     if(authtype == KEY_A)
@@ -218,7 +219,7 @@ uint32_t PN532::authenticateBlock(uint8_t cardnumber /*1 or 2*/,uint32_t cid /*C
 
 }
 
-uint32_t PN532::readMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddress /*0 to 63*/, uint8_t * block) {
+uint32_t PN532::readMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddress /*0 to 63*/, uint8_t* block) {
     pn532_packetbuffer[0] = PN532_INDATAEXCHANGE;
     pn532_packetbuffer[1] = cardnumber;  // either card 1 or 2 (tested for card 1)
     pn532_packetbuffer[2] = PN532_MIFARE_READ;
@@ -252,7 +253,7 @@ uint32_t PN532::readMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddre
 }
 
 //Do not write to Sector Trailer Block unless you know what you are doing.
-uint32_t PN532::writeMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddress /*0 to 63*/, uint8_t * block) {
+uint32_t PN532::writeMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddress /*0 to 63*/, uint8_t const* block) {
     pn532_packetbuffer[0] = PN532_INDATAEXCHANGE;
     pn532_packetbuffer[1] = cardnumber;  // either card 1 or 2 (tested for card 1)
     pn532_packetbuffer[2] = PN532_MIFARE_WRITE;
@@ -304,6 +305,7 @@ uint32_t PN532::readPassiveTargetID(uint8_t cardbaudrate) {
 #ifdef PN532DEBUG
     Serial.print("Found "); Serial.print(pn532_packetbuffer[7], DEC); Serial.println(" tags");
 #endif
+
     if (pn532_packetbuffer[7] != 1)
         return 0;
     
@@ -337,7 +339,7 @@ uint32_t PN532::readPassiveTargetID(uint8_t cardbaudrate) {
 /************** high level SPI */
 
 
-boolean PN532::spi_readack() {
+bool PN532::spi_readack() {
     uint8_t ackbuff[6];
 
     readspidata(ackbuff, 6);
@@ -390,7 +392,7 @@ void PN532::readspidata(uint8_t* buff, uint8_t n) {
     digitalWrite(_ss, HIGH);
 }
 
-void PN532::spiwritecommand(uint8_t* cmd, uint8_t cmdlen) {
+void PN532::spiwritecommand(uint8_t const* cmd, uint8_t cmdlen) {
     uint8_t checksum;
 
     cmdlen++;

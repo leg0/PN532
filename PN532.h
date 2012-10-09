@@ -10,7 +10,6 @@
 
 
 #include <Arduino.h>
-#include "SPI.h" 
 
 #define PN532_PREAMBLE 0x00
 #define PN532_STARTCODE1 0x00
@@ -46,37 +45,37 @@
 #define KEY_B	2
 
 
-class PN532{
+class PN532 {
 public:
     PN532(uint8_t cs);
 
-    void begin(void);
-    void backupSPIConf(void);
-    void restoreSPIConf(void);	
-	void RFConfiguration(uint8_t mxRtyPassiveActivation);
-    boolean SAMConfig(void);
-    uint32_t getFirmwareVersion(void);
+    void begin();
+    void backupSPIConf();
+    void restoreSPIConf();	
+    void RFConfiguration(uint8_t mxRtyPassiveActivation);
+    bool SAMConfig();
+    uint32_t getFirmwareVersion();
     uint32_t readPassiveTargetID(uint8_t cardbaudrate);
     uint32_t authenticateBlock(	uint8_t cardnumber /*1 or 2*/,
-				uint32_t cid /*Card NUID*/,
-				uint8_t blockaddress /*0 to 63*/,
-				uint8_t authtype /*Either KEY_A or KEY_B */,
-				uint8_t * keys);
+                                uint32_t cid /*Card NUID*/,
+                                uint8_t blockaddress /*0 to 63*/,
+                                uint8_t authtype /*Either KEY_A or KEY_B */,
+                                uint8_t const* keys);
 
-    uint32_t readMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddress /*0 to 63*/, uint8_t * block);
-    uint32_t writeMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddress /*0 to 63*/, uint8_t * block);
+    uint32_t readMemoryBlock(uint8_t cardnumber /*1 or 2*/, uint8_t blockaddress /*0 to 63*/, uint8_t* block);
+    uint32_t writeMemoryBlock(uint8_t cardnumber /*1 or 2*/, uint8_t blockaddress /*0 to 63*/, uint8_t const* block);
 
-    boolean sendCommandCheckAck(uint8_t *cmd, uint8_t cmdlen, uint16_t timeout = 1000);
+    bool sendCommandCheckAck(uint8_t const* cmd, uint8_t cmdlen, uint16_t timeout = 1000);
 
     //
 
 private:
-    uint8_t _ss;
-	uint8_t _mode, _bitOrder, _spiClock;
-    boolean spi_readack();
-    uint8_t readspistatus(void);
+    uint8_t const _ss;
+    uint8_t _mode, _bitOrder, _spiClock;
+    bool spi_readack();
+    uint8_t readspistatus();
     void readspidata(uint8_t* buff, uint8_t n);
-    void spiwritecommand(uint8_t* cmd, uint8_t cmdlen);
+    void spiwritecommand(uint8_t const* cmd, uint8_t cmdlen);
     void spiwrite(uint8_t c);
-    uint8_t spiread(void);
+    uint8_t spiread();
 };
