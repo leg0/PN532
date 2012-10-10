@@ -72,56 +72,132 @@
 
 #define PN532_WAKEUP 0x55
 
-#define  PN532_SPI_STATREAD 0x02
+// See datasheet p6.2.5
+#define  PN532_SPI_STATREAD  0x02
 #define  PN532_SPI_DATAWRITE 0x01
-#define  PN532_SPI_DATAREAD 0x03
+#define  PN532_SPI_DATAREAD  0x03
+
 #define  PN532_SPI_READY 0x01
 
-#define PN532_MIFARE_ISO14443A 0x0
-#define PN532_MAX_RETRIES 0x05
-
-#define KEY_A	1
-#define KEY_B	2
+//#define PN532_MIFARE_ISO14443A 0x0
+#define PN532_MAX_RETRIES      0x05
 
 
-class PN532 {
+// SPI bus policy
+#include "SpiBus.h"
+//#define PN532_DEBUG 1
+#include "DebugPolicy.h"
+
+
+
+// The aim of the refactor is to allow user of this library to do this:
+//
+// typedef PN532Base<SpiBus<1>, NopDebug> PN532;
+
+class PN532
+{
 public:
-    PN532(uint8_t cs);
+
+	typedef pn532::SpiBus Bus;
+	typedef pn532::DebugPolicy Debug;
+
+    enum Key
+    {
+        Key_A = 1,
+        Key_B = 2
+    };
+
+    enum SamMode// : uint8_t
+    {
+        SamMode_Normal = 0x01,
+        SamMode_VirtualCard = 0x02,
+        SamMode_WiredCard = 0x03,
+        SamMode_DualCard = 0x04,
+    };
+
+    enum SamIrq// : uint8_t
+    {
+        SamIrq_No = 0x00,
+        SamIrq_Yes = 0x01,
+    };
+
+    /// @see datasheet p. 7.3.5
+    enum BrTy
+    {
+        BrTy_106kbpsTypeA = 0x00,
+        BrTy_212kbpsFeliCa = 0x01,
+        BrTy_424kbpsFeliCa = 0x02,
+        BrTy_106kbpsTypeB = 0x03,
+        BrTy_106kbpsJewel = 0x04
+    };
+
+    struct CmdGetFirmwareVersion
+    {
+        static uint8_t const code = PN532_CMD_GET_FIRMWARE_VERSION;
+        explicit CmdGetFirmwareVersion(uint8_t* buf);
+        uint8_t length() const { return 1; }
+        uint8_t const* const ptr;
+    };
+
+    struct CmdSamConfiguration
+    {
+        /// @param timeout_50ms - timeout in 50ms units.
+        CmdSamConfiguration(uint8_t* buf, SamMode samMode, uint8_t timeout_50ms, SamIrq samIrq = SamIrq_Yes);
+        uint8_t length() const { return 4; }
+        uint8_t const* const ptr;
+    };
+
+    struct CmdInListPassiveTarget
+    {
+        CmdInListPassiveTarget(uint8_t* buf, uint8_t maxTags, BrTy brTy, uint8_t const* initiatorData);
+        uint8_t length() const { return 3; }
+        uint8_t const* const ptr;
+    //private:
+    //    uint8_t length_;
+    };
 
     void begin();
-    void backupSPIConf();
-    void restoreSPIConf();	
     void RFConfiguration(uint8_t mxRtyPassiveActivation);
     bool SAMConfig();
     uint32_t getFirmwareVersion();
-    uint32_t readPassiveTargetID(uint8_t cardbaudrate);
-    bool readPassiveTargetID(uint8_t cardbaudrate, uint8_t* buffer, uint32_t bufferSize);
-    template <uint32_t BufferSize>
-    bool readPassiveTargetID(uint8_t cardbaudrate, uint8_t(&buffer)[BufferSize])
+    uint32_t readPassiveTargetID(BrTy cardbaudrate);
+    bool readPassiveTargetID(BrTy cardbaudrate, uint8_t* buffer, uint32_t bufferSize);
+    template <uint8_t BufferSize>
+    bool readPassiveTargetID(BrTy cardbaudrate, uint8_t(&buffer)[BufferSize])
     {
         return readPassiveTargetID(cardbaudrate, buffer, BufferSize);
     }
 
-    uint32_t authenticateBlock(	uint8_t cardnumber /*1 or 2*/,
-                                uint32_t cid /*Card NUID*/,
-                                uint8_t blockaddress /*0 to 63*/,
-                                uint8_t authtype /*Either KEY_A or KEY_B */,
-                                uint8_t const* keys);
+    uint32_t authenticateBlock(
+        uint8_t cardnumber /*1 or 2*/,
+        uint32_t cid /*Card NUID*/,
+        uint8_t blockaddress /*0 to 63*/,
+        Key authtype,
+        uint8_t const* keys);
 
-    uint32_t readMemoryBlock(uint8_t cardnumber /*1 or 2*/, uint8_t blockaddress /*0 to 63*/, uint8_t* block);
-    uint32_t writeMemoryBlock(uint8_t cardnumber /*1 or 2*/, uint8_t blockaddress /*0 to 63*/, uint8_t const* block);
+    uint32_t readMemoryBlock(
+        uint8_t cardnumber /*1 or 2*/,
+        uint8_t blockaddress /*0 to 63*/,
+        uint8_t* block);
 
-    bool sendCommandCheckAck(uint8_t const* cmd, uint8_t cmdlen, uint16_t timeout = 1000);
+    uint32_t writeMemoryBlock(
+        uint8_t cardnumber /*1 or 2*/,
+        uint8_t blockaddress /*0 to 63*/,
+        uint8_t const* block);
+
+    bool sendCommandCheckAck(uint8_t const* cmd, uint8_t cmdlen, uint16_t timeout);
+    template <typename Command>
+    bool sendCommandCheckAck(Command const& cmd, uint16_t timeout = 1000)
+    {
+        return sendCommandCheckAck(cmd.ptr, cmd.length(), timeout);
+    }
 
     //
 
 private:
-    uint8_t const _ss;
-    uint8_t _mode, _bitOrder, _spiClock;
-    bool spi_readack();
-    uint8_t readspistatus();
-    void readspidata(uint8_t* buff, uint8_t n);
-    void spiwritecommand(uint8_t const* cmd, uint8_t cmdlen);
-    void spiwrite(uint8_t c);
-    uint8_t spiread();
+    bool hasAck() const;
+	bool waitReady(uint16_t timeout) const;
+    uint8_t readStatus() const;
+    void readData(uint8_t* buff, uint8_t n) const;
+    void writeCommand(uint8_t const* cmd, uint8_t cmdlen);
 };
