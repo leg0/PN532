@@ -5,7 +5,7 @@
 namespace pn532
 {
 
-struct SpiBus
+struct SpiBusBase
 {
 	static void begin();
 
@@ -25,13 +25,27 @@ struct SpiBus
 
 	static void select();
 	static void deselect();
+};
 
-	static uint8_t const ChipSelect = 10;//PN532_CS;
+template <uint8_t CS, bool HighSelects = false>
+struct SpiBus : SpiBusBase
+{
+	static uint8_t const ChipSelect = CS;
+	static void begin()
+	{
+		SpiBusBase::begin();
+		pinMode(ChipSelect, OUTPUT);
+	}
 
-private:
-	static uint8_t mode; 
-	static uint8_t bitOrder;
-	static uint8_t spiClock;
+	static void select()
+	{
+		digitalWrite(ChipSelect,  HighSelects ? HIGH : LOW);
+	}
+
+	static void deselect()
+	{
+		digitalWrite(ChipSelect, !HighSelects ? LOW : HIGH);
+	}
 };
 
 } // pn532

@@ -5,6 +5,11 @@ namespace pn532
 
 struct NopDebug
 {
+	static void begin() { }
+	
+	template <typename T>
+	static void begin(T) { }
+
 	template <typename T, typename U>
 	static void print(T, U) { }
 
@@ -20,5 +25,4 @@ struct NopDebug
 	static void println() { }
 };
 
-typedef NopDebug DebugPolicy;
 } // pn532

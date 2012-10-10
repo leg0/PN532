@@ -3,15 +3,14 @@
 #include <PN532.h>
 #include <SPI.h>
 
-using pn532::SpiBus;
+using pn532::SpiBusBase;
 
-uint8_t SpiBus::mode; 
-uint8_t SpiBus::bitOrder;
-uint8_t SpiBus::spiClock;
+static uint8_t mode; 
+static uint8_t bitOrder;
+static uint8_t spiClock;
 
-void SpiBus::begin()
+void SpiBusBase::begin()
 {
-    pinMode(ChipSelect, OUTPUT);
 	SPI.begin();
 }
 
@@ -19,7 +18,7 @@ void SpiBus::begin()
 // Also select PN532 by setting select PIN to LOW
 // Note for example EthernetShield uses MSBFIRST while PN532 uses LSBFIRST
 // This method  must be called EVERY TIME before calling  any other method in this library
-void SpiBus::backupConfiguration() {
+void SpiBusBase::backupConfiguration() {
 	mode = SPCR & SPI_MODE_MASK;
 	bitOrder =  SPCR & _BV(DORD);
 	spiClock = SPCR & SPI_CLOCK_MASK;
@@ -31,7 +30,7 @@ void SpiBus::backupConfiguration() {
 // Restore SPI values in SPI SPCR register (mode, bit order and spi speed) to the values set up by other libraries/shields 
 // Also deselect PN532 by setting select PIN to HIGH
 // This method  must be called EVERY TIME after calling any other method (or set of methods) in this library
-void SpiBus::restoreConfiguration() {
+void SpiBusBase::restoreConfiguration() {
 	SPI.setDataMode(mode);
 	if (bitOrder) SPCR|=_BV(DORD);
 	else  SPCR &= ~(_BV(DORD));
@@ -42,7 +41,7 @@ void SpiBus::restoreConfiguration() {
 //Use official SPI HW library of arduino
 
 // Use official HW write function (register based)
-void SpiBus::writeByte(uint8_t b)
+void SpiBusBase::writeByte(uint8_t b)
 {
 	SPI.transfer(b);
 }
@@ -52,37 +51,27 @@ void SpiBus::writeByte(uint8_t b)
 // waits for the response byte from PN532
 // PN532 only sends data back if it has responded first with
 // byte PN532_SPI_READY to a previous command
-uint8_t SpiBus::readByte()
+uint8_t SpiBusBase::readByte()
 {
 	return SPI.transfer(PN532_SPI_DATAREAD);
 }
 
-uint8_t SpiBus::transceiveByte(uint8_t b)
+uint8_t SpiBusBase::transceiveByte(uint8_t b)
 {
 	return SPI.transfer(b);
 }
 
-uint8_t SpiBus::dataWriteFollows()
+uint8_t SpiBusBase::dataWriteFollows()
 {
-    return SpiBus::transceiveByte(PN532_SPI_DATAWRITE);
+    return SpiBusBase::transceiveByte(PN532_SPI_DATAWRITE);
 }
 
-uint8_t SpiBus::dataReadFollows()
+uint8_t SpiBusBase::dataReadFollows()
 {
-    return SpiBus::transceiveByte(PN532_SPI_DATAREAD);
+    return SpiBusBase::transceiveByte(PN532_SPI_DATAREAD);
 }
 
-//uint8_t SpiBus::statusReadFollows()
+//uint8_t SpiBusBase::statusReadFollows()
 //{
-//    return SpiBus::transceiveByte(PN532_SPI_STATREAD);
+//    return SpiBusBase::transceiveByte(PN532_SPI_STATREAD);
 //}
-
-void SpiBus::select()
-{
-    digitalWrite(ChipSelect, LOW);
-}
-
-void SpiBus::deselect()
-{
-    digitalWrite(ChipSelect, HIGH);
-}

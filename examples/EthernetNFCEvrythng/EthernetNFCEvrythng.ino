@@ -3,6 +3,7 @@
 #include <PN532.h>
 #include <SPI.h>
 #include <Ethernet.h>
+//#include <Wire.h>
 
 // The new PN532 library uses SPI HW implementation from official arduino SPI.h library
 // The original PN532 library from seeedstudio uses a dedicated SPI SW implementation in PN532.h library 
@@ -87,7 +88,13 @@
 #define ETH_SS 10
 #define SD_SS 4
 
-PN532 nfc(NFC_SS);
+typedef pn532::PN532Base<pn532::SpiBus<NFC_SS>, pn532::NopDebug> NFC;
+// typedef PN532Base<pn532::SpiBus<NFC_SS>, pn532::SerialDebug> NFC;
+// typedef PN532Base<my::SoftSpiBus<cs, miso, mosi, sck>, my::FileDebug> NFC;
+// typedef pn532::PN532Base<pn532::I2cBus<addr>, pn532::NopDebug> NFC;
+
+typedef pn532::SerialDebug Debug;
+//typedef pn532::NopDebug Debug;
 
 byte mac[] = {  0x90, 0xA2, 0xDA, 0x00, 0x00, 0x00 };
 EthernetClient client;
@@ -117,41 +124,41 @@ void setup()
   digitalWrite(SD_SS, HIGH);  
 
   time = millis();
-  Serial.begin(19200);
-  Serial.println("Starting setup method...");
+  Debug::begin(19200);
+  Debug::println("Starting setup method...");
 
   //Initialise NFC reader
-  nfc.backupSPIConf();
-  nfc.begin();
-  nfc.RFConfiguration(0x14); // default is 0xFF (try forever; ultimately it does time out but after a long while
+  NFC::Bus::backupConfiguration();
+  NFC::begin();
+  NFC::setRfMaxRetries(0x14); // default is 0xFF (try forever; ultimately it does time out but after a long while
                              // modifies NFC library to set up a timeout while searching for RFID tags
-  uint32_t versiondata = nfc.getFirmwareVersion();
+  uint32_t versiondata = NFC::getFirmwareVersion();
   if (! versiondata) {
-    Serial.print("Didn't find PN53x board");
+    Debug::print("Didn't find PN53x board");
     // stop
     for(;;);
   }    
   // ok, print received data!
-  Serial.print("Found chip PN5"); Serial.println((versiondata>>24) & 0xFF, HEX); 
-  Serial.print("Firmware ver. "); Serial.print((versiondata>>16) & 0xFF, DEC); 
-  Serial.print('.'); Serial.println((versiondata>>8) & 0xFF, DEC);
-  Serial.print("Supports "); Serial.println(versiondata & 0xFF, HEX);
+  Debug::print("Found chip PN5"); Debug::println((versiondata>>24) & 0xFF, HEX); 
+  Debug::print("Firmware ver. "); Debug::print((versiondata>>16) & 0xFF, DEC); 
+  Debug::print('.'); Debug::println((versiondata>>8) & 0xFF, DEC);
+  Debug::print("Supports "); Debug::println(versiondata & 0xFF, HEX);
   // configure board to read RFID tags and cards
-  nfc.SAMConfig();
-  nfc.restoreSPIConf();
+  NFC::SAMConfig();
+  NFC::Bus::restoreConfiguration();
  
  
   //Initialise Ethernet connection
-  Serial.println("StartEthernet");
+  Debug::println("StartEthernet");
   digitalWrite(10, LOW); //SPI select Ethernet
   if (Ethernet.begin(mac) == 0) {
-    Serial.println("Failed to configure Ethernet using DHCP");
+    Debug::println("Failed to configure Ethernet using DHCP");
     // stop
     for(;;);
   }
   digitalWrite(10, HIGH); //SPI deselect Ethernet
 
-  Serial.println("NFC and Ethernet initialised OK");   
+  Debug::println("NFC and Ethernet initialised OK");   
   flowState=STATE_IDDLE;
   delay(1000);
 }
@@ -161,18 +168,18 @@ void setup()
 void loop()
 { 
   if ((millis()-time > 1000)&&(flowState==STATE_IDDLE)) {
-      Serial.println("Checking NFC...");
+      Debug::println("Checking NFC...");
     // look for Mifare type cards every second
     time=millis();
     digitalWrite(10, HIGH);//SPI deselect Ethernet    
-    nfc.backupSPIConf();
-    Serial.println("Start NFC read");
-    tagId = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A);
-    Serial.println("End NFC read");
-    nfc.restoreSPIConf();
+	NFC::Bus::backupConfiguration();
+    Debug::println("Start NFC read");
+	tagId = NFC::readPassiveTargetID(pn532::BrTy_106kbpsTypeA);
+    Debug::println("End NFC read");
+	NFC::Bus::restoreConfiguration();
     if (tagId != 0) 
     { 
-      Serial.print("Read card #"); Serial.println(tagId);
+      Debug::print("Read card #"); Debug::println(tagId);
       xmitId=0;
       uint32_t divisor= 1000000000;
       for (int i=0;i<10; i++){
@@ -180,8 +187,8 @@ void loop()
          tagId=tagId%divisor;
          divisor /=10;
       }
-      Serial.print("Converted String: "); 
-      Serial.println(tagIdString);
+      Debug::print("Converted String: "); 
+      Debug::println(tagIdString);
       time=millis();
       flowState=STATE_SENDDATA;
       return;
@@ -190,10 +197,10 @@ void loop()
 
 
   if (flowState==STATE_SENDDATA) {
-      Serial.println("Connecting to server ...");
+      Debug::println("Connecting to server ...");
       // if you get a connection, report back via serial:
       if (client.connect("www.evrythng.net", 80)) {
-          Serial.println("Connected. Making PUT http request");
+          Debug::println("Connected. Making PUT http request");
           // Make a HTTP request:
           client.println("PUT http://evrythng.net/thngs/...yourThingIdHere.../properties/ReadTag HTTP/1.1");
           client.println("Content-Type: application/json");
@@ -208,7 +215,7 @@ void loop()
           responseTime=millis();
           flowState=STATE_RESPONSE;
       }  else {
-          Serial.println("Connection to server failed");       
+          Debug::println("Connection to server failed");       
           flowState=STATE_IDDLE;
       } 
 
@@ -218,11 +225,11 @@ void loop()
 
     if (client.available()) {
       char c = client.read();
-      Serial.print(c);
+      Debug::print(c);
     }
     if ((millis() - responseTime)>2000) {
-        Serial.println();
-        Serial.println("Closing connection to server");
+        Debug::println();
+        Debug::println("Closing connection to server");
         client.stop();
         flowState=STATE_IDDLE;
     }

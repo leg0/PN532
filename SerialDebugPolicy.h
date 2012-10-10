@@ -4,6 +4,8 @@ namespace pn532
 {
 struct SerialDebug
 {
+	static void begin(uint32_t baud) { Serial.begin(baud); }
+
 	template <typename T, typename U>
 	static size_t print(T t, U u) { return Serial.print(t, u); }
 
@@ -19,5 +21,4 @@ struct SerialDebug
 	static size_t println() { return Serial.println(); }
 };
 
-typedef SerialDebug DebugPolicy;
 }
