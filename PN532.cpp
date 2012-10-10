@@ -16,9 +16,9 @@ using namespace pn532;
 uint8_t PN532Base_::packetBuffer[PacketBufferSize];
 
 GetFirmwareVersion::GetFirmwareVersion(uint8_t* buf)
-    : ptr(buf)
+	: ptr(buf)
 {
-    buf[0] = Code;
+	buf[0] = Code;
 }
 
 RfConfiguration::RfConfiguration(uint8_t* buf, RfConfigurationItem cfgItem, void const* cfgData)
@@ -56,21 +56,21 @@ RfConfiguration::RfConfiguration(uint8_t* buf, RfConfigurationItem cfgItem, void
 }
 
 SamConfiguration::SamConfiguration(uint8_t* buf, SamMode samMode, uint8_t timeout_50ms, SamIrq samIrq)
-    : ptr(buf)
+	: ptr(buf)
 {
-    *(buf++) = Code;
-    *(buf++) = samMode;
-    *(buf++) = timeout_50ms;
-    *(buf++) = samIrq;
+	*(buf++) = Code;
+	*(buf++) = samMode;
+	*(buf++) = timeout_50ms;
+	*(buf++) = samIrq;
 }
 
 InListPassiveTarget::InListPassiveTarget(uint8_t* buf, uint8_t maxTags, BrTy brTy, uint8_t const* /*initiatorData*/)
-    : ptr(buf)
+	: ptr(buf)
 {
-    *(buf++) = Code;
-    *(buf++) = maxTags;
-    *(buf++) = brTy;
+	*(buf++) = Code;
+	*(buf++) = maxTags;
+	*(buf++) = brTy;
 
-    // TODO:initiator data.
+	// TODO:initiator data.
 }
 
