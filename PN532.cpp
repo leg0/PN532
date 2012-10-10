@@ -289,14 +289,28 @@ uint32_t PN532::writeMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddr
 }
 
 uint32_t PN532::readPassiveTargetID(uint8_t cardbaudrate) {
-    uint32_t cid;
+    uint32_t cid = 0;
+    if (readPassiveTargetID(cardbaudrate, NULL, 0))
+    {
+        for (uint8_t i=0; i< pn532_packetbuffer[12]; i++) {
+            cid <<= 8;
+            cid |= pn532_packetbuffer[13+i];
+#ifdef PN532DEBUG
+            Serial.print(" 0x"); Serial.print(pn532_packetbuffer[13+i], HEX);
+#endif
+        }
+    }
+    return cid;
+}
+
+bool PN532::readPassiveTargetID(uint8_t cardbaudrate, uint8_t* buffer, uint32_t bufferSize) {
 
     pn532_packetbuffer[0] = PN532_INLISTPASSIVETARGET;
     pn532_packetbuffer[1] = 1;  // max 1 cards at once (we can set this to 2 later)
     pn532_packetbuffer[2] = cardbaudrate;
 
     if (! sendCommandCheckAck(pn532_packetbuffer, 3))
-        return 0x0;  // no cards read
+        return false;  // no cards read
 
     // read data packet
     readspidata(pn532_packetbuffer, 20);
@@ -307,7 +321,7 @@ uint32_t PN532::readPassiveTargetID(uint8_t cardbaudrate) {
 #endif
 
     if (pn532_packetbuffer[7] != 1)
-        return 0;
+        return false;
     
     uint16_t sens_res = pn532_packetbuffer[9];
     sens_res <<= 8;
@@ -316,13 +330,8 @@ uint32_t PN532::readPassiveTargetID(uint8_t cardbaudrate) {
     Serial.print("Sens Response: 0x");  Serial.println(sens_res, HEX);
     Serial.print("Sel Response: 0x");  Serial.println(pn532_packetbuffer[11], HEX);
 #endif
-    cid = 0;
-    for (uint8_t i=0; i< pn532_packetbuffer[12]; i++) {
-        cid <<= 8;
-        cid |= pn532_packetbuffer[13+i];
-#ifdef PN532DEBUG
-        Serial.print(" 0x"); Serial.print(pn532_packetbuffer[13+i], HEX);
-#endif
+    for (uint8_t i=0; i< pn532_packetbuffer[12] && i < bufferSize; i++) {
+        buffer[i] = pn532_packetbuffer[12+i];
     }
 
 #ifdef PN532DEBUG
@@ -332,7 +341,7 @@ uint32_t PN532::readPassiveTargetID(uint8_t cardbaudrate) {
         Serial.print(pn532_packetbuffer[i], HEX); Serial.println(" ");
     }
 #endif  
-    return cid;
+    return true;
 }
 
 
