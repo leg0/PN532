@@ -41,12 +41,12 @@ struct SpiBus : detail::SpiBusBase
 
     static void select()
     {
-        digitalWrite(ChipSelect,  HighSelects ? HIGH : LOW);
+        digitalWrite(ChipSelect, HighSelects ? HIGH : LOW);
     }
 
     static void deselect()
     {
-        digitalWrite(ChipSelect, !HighSelects ? LOW : HIGH);
+        digitalWrite(ChipSelect, HighSelects ? LOW : HIGH);
     }
 };
 

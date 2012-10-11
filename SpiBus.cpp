@@ -75,7 +75,7 @@ uint8_t SpiBusBase::dataReadFollows(uint8_t /*ignore*/)
     return SpiBusBase::transceiveByte(PN532_SPI_DATAREAD);
 }
 
-uint8_t SpiBusBase::statusReadFollows()
+uint8_t SpiBusBase::readStatus()
 {
     // TODO: 
     return SpiBusBase::transceiveByte(PN532_SPI_STATREAD);

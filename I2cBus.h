@@ -8,7 +8,11 @@ namespace pn532
 template <uint8_t Address, uint8_t Irq, uint8_t Reset>
 struct I2cBus
 {
-	enum { Busy, Ready };
+	enum Status
+	{
+		Status_Busy,
+		Status_Ready
+	};
 
 	static void begin()
 	{
@@ -52,14 +56,18 @@ struct I2cBus
 	/// Indicates that \a numberOfBytes bytes is going to be read.
 	static uint8_t dataReadFollows(uint8_t numberOfBytes)
 	{
-		return Wire.requestFrom(Address, numberOfBytes);
+		// Number of bytes that the caller wants, plus the leading byte we return from here.
+		Wire.requestFrom(Address, numberOfBytes+1);
+
+		// Return the leading byte of the response.
+		return readByte();
 	}
 
-	static uint8_t statusRead()
+	static Status statusRead()
 	{
-		return digitalRead(Irq) == 1
-			? Busy
-			: Ready;
+		return (digitalRead(Irq) & 0x01) == 1
+			? Status_Busy
+			: Status_Ready;
 	}
 
 	/// Used by SPI.
@@ -73,7 +81,6 @@ struct I2cBus
 
 	/// Used by SPI.
 	static void deselect() { /* NOP */ }
-
 };
 
 }
