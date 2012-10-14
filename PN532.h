@@ -237,6 +237,16 @@ class PN532Base : public PN532Base_
 {
 public:
 
+    /// This is a type for return values of the functions in this class. Just plain success/fail is
+    /// not enough - we need a reason of failure.
+    enum ReturnValue
+    {
+        Success,
+        E_Fail,
+        E_InsufficientBuffer,
+        E_MultipleTags,
+    };
+
     typedef BusPolicy Bus;
     typedef DebugPolicy Debug;
 
@@ -260,12 +270,19 @@ public:
     // ISO 14443-3A
     //
 
-    static uint32_t readPassiveTargetID(BrTy cardbaudrate);
-    static bool readPassiveTargetID(BrTy cardbaudrate, uint8_t* buffer, uint32_t bufferSize);
+    /// Read id of a passive target.
+    /// @param cardbaudrate
+    /// @param buffer - pointer to a buffer that can hold at least \a bufferSize bytes.
+    /// @param bufferSize - number of bytes that the buffer can hold.
+    /// @param idLength - number of bytes that the ID read from the target contains.
+    /// @retval Success if the reading is successful.
+    /// @retval E_InsufficientBuffer if the bufferSize is too small to fit entire id into it.
+    /// @retval E_Fail - is reading the id failed.
+    static ReturnValue readPassiveTargetID(BrTy cardbaudrate, uint8_t* buffer, uint32_t bufferSize, uint8_t& idLength);
     template <uint8_t BufferSize>
-    static bool readPassiveTargetID(BrTy cardbaudrate, uint8_t(&buffer)[BufferSize])
+    static ReturnValue readPassiveTargetID(BrTy cardbaudrate, uint8_t(&buffer)[BufferSize], uint8_t& idLength)
     {
-        return readPassiveTargetID(cardbaudrate, buffer, BufferSize);
+        return readPassiveTargetID(cardbaudrate, buffer, BufferSize, idLength);
     }
 
     //
@@ -274,7 +291,7 @@ public:
 
     static uint32_t authenticateBlock(
         uint8_t cardnumber /*1 or 2*/,
-        uint32_t cid /*Card NUID*/,
+        uint8_t const* id, uint8_t idLength,
         uint8_t blockaddress /*0 to 63*/,
         Key authtype,
         uint8_t const* keys);
@@ -305,6 +322,11 @@ public:
     // ...
 
     static void readData(uint8_t* buff, uint8_t n);
+    template <uint8_t Size>
+    static void readData(uint8_t (&buff)[Size])
+    {
+        return readData(buff, Size);
+    }
 
 private:
     static bool hasAck();
@@ -454,36 +476,31 @@ bool PN532Base<B,D>::SAMConfig()
 template <typename B, typename D>
 uint32_t PN532Base<B,D>::authenticateBlock(
     uint8_t cardnumber /*1 or 2*/,
-    uint32_t cid /*Card NUID*/,
+    uint8_t const* id, uint8_t idLength/*Card NUID*/,
     uint8_t blockaddress /*0 to 63*/,
     Key authtype,
     uint8_t const* keys)
 {
-    packetBuffer[0] = InDataExchange::Code;
-    packetBuffer[1] = cardnumber;  // either card 1 or 2 (tested for card 1)
+    uint8_t* p = packetBuffer;
+    *(p++) = Cmd_InDataExchange;
+    *(p++) = cardnumber;  // either card 1 or 2 (tested for card 1)
     if (authtype == Key_A)
     {
-        packetBuffer[2] = MifareCmd_AuthWithKeyA;
+        *(p++) = MifareCmd_AuthWithKeyA;
     }
     else
     {
-        packetBuffer[2] = MifareCmd_AuthWithKeyB;
+        *(p++) = MifareCmd_AuthWithKeyB;
     }
-    packetBuffer[3] = blockaddress; //This address can be 0-63 for MIFARE 1K card
+    *(p++) = blockaddress; //This address can be 0-63 for MIFARE 1K card
 
-    packetBuffer[4] = keys[0];
-    packetBuffer[5] = keys[1];
-    packetBuffer[6] = keys[2];
-    packetBuffer[7] = keys[3];
-    packetBuffer[8] = keys[4];
-    packetBuffer[9] = keys[5];
+    memcpy(p, keys, 6);
+    p += 6;
 
-    packetBuffer[10] = ((cid >> 24) & 0xFF);
-    packetBuffer[11] = ((cid >> 16) & 0xFF);
-    packetBuffer[12] = ((cid >> 8) & 0xFF);
-    packetBuffer[13] = ((cid >> 0) & 0xFF);
+    memcpy(packetBuffer+10, id, idLength);
+    p += idLength;
 
-    if (! sendCommandCheckAck(packetBuffer, 14, 1000))
+    if (! sendCommandCheckAck(packetBuffer, p - packetBuffer, 1000))
         return false;
 
     // read data packet
@@ -504,7 +521,7 @@ uint32_t PN532Base<B,D>::authenticateBlock(
     }
 
     // XXX: magic numbers.
-    return packetBuffer[6] == InDataExchange::ResponseCode && packetBuffer[7] == 0x00;
+    return packetBuffer[6] == responseOf(Cmd_InDataExchange) && packetBuffer[7] == 0x00;
 }
 
 template <typename B, typename D>
@@ -562,59 +579,45 @@ bool PN532Base<B,D>::writeMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t bloc
 }
 
 template <typename B, typename D>
-uint32_t PN532Base<B,D>::readPassiveTargetID(BrTy cardbaudrate)
-{
-    uint32_t cid = 0;
-    if (readPassiveTargetID(cardbaudrate, NULL, 0))
-    {
-        for (uint8_t i = 0; i < packetBuffer[12]; ++i)
-        {
-            cid <<= 8;
-            cid |= packetBuffer[13+i];
-            Debug::print(" 0x"); Debug::print(packetBuffer[13+i], HEX);
-        }
-    }
-    return cid;
-}
-
-template <typename B, typename D>
-bool PN532Base<B,D>::readPassiveTargetID(BrTy cardbaudrate, uint8_t* buffer, uint32_t bufferSize)
+typename PN532Base<B,D>::ReturnValue PN532Base<B,D>::readPassiveTargetID(BrTy cardbaudrate, uint8_t* buffer, uint32_t bufferSize, uint8_t& idLength)
 {
     if (! sendCommandCheckAck(InListPassiveTarget(packetBuffer, 1, cardbaudrate, NULL)))
     {
-        return false;  // no cards read
+        return E_Fail;  // no cards read
     }
 
     // read data packet
     readData(packetBuffer, 20);
-    // check some basic stuff
 
-    Debug::print("Found "); Debug::print(packetBuffer[7], DEC); Debug::println(" tags");
+    uint8_t const numberOfTags = packetBuffer[7]; // XXX: magic number
+    Debug::print("Found "); Debug::print(numberOfTags); Debug::println(" tags");
 
-    // XXX: magic number
-    if (packetBuffer[7] != 1)
+    if (numberOfTags != 1)
     {
-        return false;
+        return E_MultipleTags;
     }
 
     uint16_t sens_res = packetBuffer[9];
     sens_res <<= 8;
     sens_res |= packetBuffer[10];
     Debug::print("Sens Response: 0x");  Debug::println(sens_res, HEX);
-    Debug::print("Sel Response: 0x");  Debug::println(packetBuffer[11], HEX);
+    Debug::print("Sel Response : 0x");  Debug::println(packetBuffer[11], HEX);
 
-    for (uint8_t i = 0; i < packetBuffer[12] && i < bufferSize; ++i)
+    idLength = packetBuffer[12];
+    for (uint8_t i = 0; i < idLength && i < bufferSize; ++i)
     {
         buffer[i] = packetBuffer[12+i];
     }
 
-    Debug::println("TargetID");
+    Debug::print("TargetID: ");
     for (uint8_t i = 0; i < 20; ++i)
     {
-        Debug::print(packetBuffer[i], HEX); Debug::println(" ");
+        uint8_t const b = packetBuffer[i];
+        Debug::print(b/16, HEX); Debug::print(b%16, HEX); Debug::print(" ");
     }
+    Debug::println();
 
-    return true;
+    return Success;
 }
 
 
@@ -625,7 +628,7 @@ template <typename B, typename D>
 bool PN532Base<B,D>::hasAck()
 {
     uint8_t ackbuff[6];
-    readData(ackbuff, 6);
+    readData(ackbuff);
     return memcmp(ackbuff, pn532ack, 6) == 0;
 }
 
