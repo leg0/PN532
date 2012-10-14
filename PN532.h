@@ -394,13 +394,12 @@ uint32_t PN532Base<B,D>::getFirmwareVersion()
         return 0;
     }
 
-    uint32_t response = packetBuffer[6];
-    response <<= 8;
-    response |= packetBuffer[7];
-    response <<= 8;
-    response |= packetBuffer[8];
-    response <<= 8;
-    response |= packetBuffer[9];
+    uint32_t response = 0;
+    for (uint8_t const* p = packetBuffer+6; p < packetBuffer+10; ++p)
+    {
+        response <<= 8;
+        response |= *p;
+    }
 
     return response;
 }
