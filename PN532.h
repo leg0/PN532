@@ -242,9 +242,15 @@ public:
     enum ReturnValue
     {
         Success,
+        S_AckFrame,
+        S_NackFrame,
         E_Fail,
         E_InsufficientBuffer,
         E_MultipleTags,
+        E_DataChecksum,
+        E_LengthChecksum,
+        E_ApplicationError,
+        E_ErrorFrame,
     };
 
     typedef BusPolicy Bus;
@@ -321,9 +327,9 @@ public:
 
     // ...
 
-    static void readData(uint8_t* buff, uint8_t n);
+    static ReturnValue readData(uint8_t* buff, uint8_t n);
     template <uint8_t Size>
-    static void readData(uint8_t (&buff)[Size])
+    static ReturnValue readData(uint8_t (&buff)[Size])
     {
         return readData(buff, Size);
     }
@@ -333,6 +339,7 @@ private:
     static bool waitReady(uint16_t timeout);
     static uint8_t readStatus();
     static void writeCommand(uint8_t const* cmd, uint8_t cmdlen);
+    //static bool isErrorFrame(uint8_t const* frame, uint8_t frameLen);
 };
 
 template <typename BusPolicy, typename DebugPolicy>
@@ -382,6 +389,7 @@ uint32_t PN532Base<B,D>::getFirmwareVersion()
 {
     if (! sendCommandCheckAck(GetFirmwareVersion(packetBuffer)))
     {
+        Debug::println("send command failed");
         return 0;
     }
 
@@ -389,8 +397,14 @@ uint32_t PN532Base<B,D>::getFirmwareVersion()
     readData(packetBuffer, 12);
 
     // check some basic stuff
-    if (0 != memcmp(packetBuffer, pn532response_firmwarevers, 6))
+    // 0x00, 0xFF, 0x06, 0xFA, 0xD5, 0x03
+    for (uint8_t i = 0; i < 12; ++i)
     {
+        Debug::print(packetBuffer[i], HEX); Debug::print(" ");
+    }
+    if (0 != memcmp(packetBuffer+1, pn532response_firmwarevers, 6))
+    {
+        Debug::println("response compare failed");
         return 0;
     }
 
@@ -588,35 +602,44 @@ typename PN532Base<B,D>::ReturnValue PN532Base<B,D>::readPassiveTargetID(BrTy ca
     // read data packet
     readData(packetBuffer, 20);
 
-    uint8_t const numberOfTags = packetBuffer[7]; // XXX: magic number
-    Debug::print("Found "); Debug::print(numberOfTags); Debug::println(" tags");
-
-    if (numberOfTags != 1)
+    uint8_t const responseCode = packetBuffer[6]; // XXX: magic number
+    if (responseCode != responseOf(Cmd_InListPassiveTarget))
     {
-        return E_MultipleTags;
+        Debug::print("Error: 0x"); Debug::print(responseCode, HEX);
+        return E_Fail;
     }
-
-    uint16_t sens_res = packetBuffer[9];
-    sens_res <<= 8;
-    sens_res |= packetBuffer[10];
-    Debug::print("Sens Response: 0x");  Debug::println(sens_res, HEX);
-    Debug::print("Sel Response : 0x");  Debug::println(packetBuffer[11], HEX);
-
-    idLength = packetBuffer[12];
-    for (uint8_t i = 0; i < idLength && i < bufferSize; ++i)
+    else
     {
-        buffer[i] = packetBuffer[12+i];
-    }
+        uint8_t const numberOfTags = packetBuffer[7]; // XXX: magic number
+        Debug::print("Found "); Debug::print(numberOfTags); Debug::println(" tags");
 
-    Debug::print("TargetID: ");
-    for (uint8_t i = 0; i < 20; ++i)
-    {
-        uint8_t const b = packetBuffer[i];
-        Debug::print(b/16, HEX); Debug::print(b%16, HEX); Debug::print(" ");
-    }
-    Debug::println();
+        if (numberOfTags != 1)
+        {
+            return E_MultipleTags;
+        }
 
-    return Success;
+        uint16_t sens_res = packetBuffer[9];
+        sens_res <<= 8;
+        sens_res |= packetBuffer[10];
+        Debug::print("Sens Response: 0x");  Debug::println(sens_res, HEX);
+        Debug::print("Sel Response : 0x");  Debug::println(packetBuffer[11], HEX);
+
+        idLength = packetBuffer[12];
+        for (uint8_t i = 0; i < idLength && i < bufferSize; ++i)
+        {
+            buffer[i] = packetBuffer[12+i];
+        }
+
+        Debug::print("TargetID: ");
+        for (uint8_t i = 0; i < 20; ++i)
+        {
+            uint8_t const b = packetBuffer[i];
+            Debug::print(b/16, HEX); Debug::print(b%16, HEX); Debug::print(" ");
+        }
+        Debug::println();
+
+        return Success;
+    }
 }
 
 
@@ -626,9 +649,9 @@ typename PN532Base<B,D>::ReturnValue PN532Base<B,D>::readPassiveTargetID(BrTy ca
 template <typename B, typename D>
 bool PN532Base<B,D>::hasAck()
 {
-    uint8_t ackbuff[6];
-    readData(ackbuff);
-    return memcmp(ackbuff, pn532ack, 6) == 0;
+    uint8_t ackbuff[7];
+    ReturnValue const res = readData(ackbuff);
+    return res == S_AckFrame;
 }
 
 /************** mid level SPI */
@@ -646,32 +669,161 @@ uint8_t PN532Base<B,D>::readStatus()
     return x;
 }
 
-//Start reading n bytes from PN532
-//
-//PN532 only answers PN532_SPI_READY once it has processed 
-//the previous command either to send an ACK or to send the 
-//final response to the command
+/// Reading frame from PN532.
+///
+/// PN532 only answers PN532_SPI_READY once it has processed 
+/// the previous command either to send an ACK or to send the 
+/// final response to the command
+///
 template <typename B, typename D>
-void PN532Base<B,D>::readData(uint8_t* buff, uint8_t n)
+typename PN532Base<B,D>::ReturnValue PN532Base<B,D>::readData(uint8_t* const buff, uint8_t n)
 {
-    Bus::select();
+    Debug::print("\nreadData"); Debug::print("buflen="); Debug::println(n);
+    // 
+    // TODO: move this to the Bus.
+    struct ScopedSelect {
+        ScopedSelect() { Bus::select(); }
+        ~ScopedSelect() { Bus::deselect(); }
+    } _;
+
     delay(2);
     Bus::dataReadFollows(n+2); //read leading byte DR and discard
 
-    Debug::print("Reading: ");
+    // 00 00 FF <LEN> <LCS> D5 <CC+1> <optional output data> <DCS> 00
+    enum ReadState {
+        ReadingPreamble,
+        ReadingStartCode1,
+        ReadingStartCode2,
+        ReadingLength,
+        ReadingLcs,
+        ReadingTfi,
+        ReadingOutputData,
+        ReadingDcs,
+        ReadingPostamble,
+        Done
+    };
 
-    for (uint8_t i = 0; i < n; ++i)
+    ReadState state = ReadingPreamble;
+    uint8_t length = 0;
+    uint8_t* p = buff;
+    uint8_t* end = buff+n;
+    uint8_t dcs = 0xd5;
+    while (state != Done)
     {
-        delay(1);
-        buff[i] = Bus::readByte(); //read n bytes
+        if (p > end)
+        {
+            Debug::println("\nError: Insufficient buffer");
+            Debug::print("state="); Debug::println(uint8_t(state));
+            return E_InsufficientBuffer;
+        }
+        uint8_t const b = *(p++) = Bus::readByte();
+        Debug::print(b / 16, HEX); Debug::print(b%16, HEX); Debug::print(" ");
 
-        Debug::print(" 0x");
-        Debug::print(buff[i], HEX);
+        switch (state)
+        {
+        case ReadingPreamble:
+            if (b == 0x00)
+                state = ReadingStartCode1;
+            break;
+        case ReadingStartCode1:
+            if (b == 0x00)
+            {
+                state = ReadingStartCode2;
+            }
+            else
+            {
+                p = buff;
+                Debug::println();
+            }
+            break;
+        case ReadingStartCode2:
+            if (b == 0xff)
+            {
+                state = ReadingLength;
+            }
+            else if (b == 0x00)
+            {
+                state = ReadingStartCode2;
+                p = buff+1;
+            }
+            else
+            {
+                state = ReadingStartCode1;
+                p = buff;
+                Debug::println();
+            }
+            break;
+        case ReadingLength:
+                length = b;
+                state = ReadingLcs;
+                break;
+        case ReadingLcs:
+            if (b == 0xff && length == 0)
+            {
+                *(p++) = Bus::readByte();
+                return S_AckFrame;
+            }
+            else if (b == 0 && length == 0xff)
+            {
+                *(p++) = Bus::readByte();
+                return S_NackFrame;
+            }
+            else if (uint8_t(b+length) != 0)
+            {
+                Debug::println("Error: length checksum mismatch");
+                return E_LengthChecksum;
+            }
+            else
+            {
+                state = ReadingTfi;
+            }
+            break;
+        case ReadingTfi:
+            if (b != Tfi_Pn5xxToHost)
+                return E_ErrorFrame;
+            else
+            {
+                state = ReadingOutputData;
+                --length; // TFI is included in length
+            }
+            break;
+        case ReadingOutputData:
+            if (length > 0)
+            {
+                dcs += b;
+                --length;
+                break;
+            }
+            else
+            {
+                state = ReadingDcs;
+            }
+            // no break
+        case ReadingDcs:
+            if (uint8_t(dcs + b) != 0)
+            {
+                Debug::println("Error: data checksum error");
+                return E_DataChecksum;
+            }
+            else
+            {
+                state = ReadingPostamble;
+            }
+            break;
+        case ReadingPostamble:
+            /*if (b != 0)
+            {
+                Debug::println("Error: Invalid postamble");
+                return E_InvalidPostamble;
+            }*/
+            state = Done;
+            break;
+        }
     }
 
     Debug::println();
 
-    Bus::deselect();
+    return Success;
 }
 
 template <typename B, typename D>
@@ -724,5 +876,18 @@ void PN532Base<B,D>::writeCommand(uint8_t const* cmd, uint8_t cmdlen)
     Debug::print(" 0x"); Debug::print(PN532_POSTAMBLE, HEX);
     Debug::println();
 } 
+
+//template <typename B, typename D>
+//bool PN532Base<B,D>::isErrorFrame(uint8_t const* frame, uint8_t frameLen)
+//{
+//    // 0x00 0xFF 0x01 0xFF 0x7F 0x81 
+//    // |    |    |    |     |    | 
+//    // |    |    |    |     |    +------- packet data checksum
+//    // |    |    |    |     +------------ specific application level error code
+//    // |    |    |    +------------------ packet length error code
+//    // |    |    +----------------------- packet length checksum
+//    // +----+---------------------------- start of packet
+//    
+//}
 
 } // namespace pn532
