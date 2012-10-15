@@ -672,6 +672,17 @@ void PN532Base<B,D>::writeCommand(uint8_t const* cmd, uint8_t cmdlen)
     Bus::writeByte(PN532_HOSTTOPN532);
     checksum += PN532_HOSTTOPN532;
 
+    for (uint8_t i=0; i<cmdlen-1; i++)
+    {
+        Bus::writeByte(cmd[i]);
+        checksum += cmd[i];
+    }
+    uint8_t const checksum_1 = ~checksum;
+    Bus::writeByte(checksum_1);
+    Bus::writeByte(PN532_POSTAMBLE);
+    Bus::endTransmission();
+    Bus::deselect();
+
     Debug::print(" 0x"); Debug::print(PN532_PREAMBLE, HEX);
     Debug::print(" 0x"); Debug::print(PN532_PREAMBLE, HEX);
     Debug::print(" 0x"); Debug::print(PN532_STARTCODE2, HEX);
@@ -681,17 +692,8 @@ void PN532Base<B,D>::writeCommand(uint8_t const* cmd, uint8_t cmdlen)
 
     for (uint8_t i=0; i<cmdlen-1; i++)
     {
-        Bus::writeByte(cmd[i]);
-        checksum += cmd[i];
-
         Debug::print(" 0x"); Debug::print(cmd[i], HEX);
     }
-    uint8_t const checksum_1 = ~checksum;
-    Bus::writeByte(checksum_1);
-    Bus::writeByte(PN532_POSTAMBLE);
-    Bus::endTransmission();
-    Bus::deselect();
-
     Debug::print(" 0x"); Debug::print(checksum_1, HEX);
     Debug::print(" 0x"); Debug::print(PN532_POSTAMBLE, HEX);
     Debug::println();
